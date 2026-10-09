@@ -1,0 +1,63 @@
+# Sample dev deploy using the single "Dev" GitHub Environment.
+# Manual only: Actions tab → deploy-dev → Run workflow. Runs checks first,
+# then a dry-run "deploy" that only prints which Dev values it would use.
+name: deploy-dev
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "What to deploy"
+        type: choice
+        options: [all, api, ui]
+        default: all
+
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: false
+
+jobs:
+  # Stand-in for the real ci.yml. Every deploy job needs it, so a failure
+  # here means nothing deploys.
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint and test (placeholder)
+        run: echo "Checks for ${{ github.ref_name }} @ ${{ github.sha }} passed"
+
+  deploy-api:
+    needs: checks
+    if: inputs.target == 'all' || inputs.target == 'api'
+    runs-on: ubuntu-latest
+    environment: Dev
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy api (dry run)
+        env:
+          ECR_REGISTRY_URL: ${{ vars.ECR_REGISTRY_URL }}
+          API_ECR_REPOSITORY: ${{ vars.API_ECR_REPOSITORY }}
+          EC2_HOST: ${{ vars.EC2_HOST }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        run: |
+          echo "Region:  ${{ vars.AWS_REGION }}"
+          echo "Image:   $ECR_REGISTRY_URL/$API_ECR_REPOSITORY:${GITHUB_SHA::7}"
+          echo "Target:  EC2 $EC2_HOST (docker compose up api worker)"
+          [ -n "$AWS_ACCESS_KEY_ID" ] && echo "AWS credentials: present (Dev environment secret)"
+
+  deploy-ui:
+    needs: checks
+    if: inputs.target == 'all' || inputs.target == 'ui'
+    runs-on: ubuntu-latest
+    environment: Dev
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy ui (dry run)
+        env:
+          ECR_REGISTRY_URL: ${{ vars.ECR_REGISTRY_URL }}
+          UI_ECR_REPOSITORY: ${{ vars.UI_ECR_REPOSITORY }}
+          EC2_HOST: ${{ vars.EC2_HOST }}
+        run: |
+          echo "Image:   $ECR_REGISTRY_URL/$UI_ECR_REPOSITORY:${GITHUB_SHA::7}"
+          echo "API URL: ${{ vars.UI_NEXT_PUBLIC_API_URL }}"
+          echo "Target:  EC2 $EC2_HOST (docker compose up ui)"
